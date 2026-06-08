@@ -13,10 +13,10 @@ import java.util.UUID
 class BluetoothManager(private val bluetoothAdapter: BluetoothAdapter?) {
 
     private var socket: BluetoothSocket? = null
-    var inputStream: InputStream? = null
-    var outputStream: OutputStream? = null
+    private var inputStream: InputStream? = null
+    private var outputStream: OutputStream? = null
+    var isConnected = false
 
-    // Стандартний UUID для профілю SPP (Serial Port Profile)
     private val MY_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     @SuppressLint("MissingPermission")
@@ -30,6 +30,7 @@ class BluetoothManager(private val bluetoothAdapter: BluetoothAdapter?) {
             inputStream = socket?.inputStream
             outputStream = socket?.outputStream
             
+            isConnected = true
             Log.d("BluetoothManager", "Підключено до: $deviceAddress")
             true
         } catch (e: IOException) {
@@ -39,7 +40,38 @@ class BluetoothManager(private val bluetoothAdapter: BluetoothAdapter?) {
         }
     }
 
+    fun sendCommand(command: String): String {
+        val out = outputStream ?: return ""
+        val `in` = inputStream ?: return ""
+        
+        return try {
+            // Команди OBD2 обов'язково повинні закінчуватися символом повернення каретки \r
+            out.write((command + "\r").toByteArray())
+            out.flush()
+            
+            val buffer = ByteArray(1024)
+            var bytes: Int
+            val responseBuilder = StringBuilder()
+            
+            // ELM327 сигналізує про завершення відповіді символом ">"
+            while (true) {
+                bytes = `in`.read(buffer)
+                val chunk = String(buffer, 0, bytes)
+                responseBuilder.append(chunk)
+                if (chunk.contains(">")) {
+                    break
+                }
+            }
+            responseBuilder.toString().trim()
+        } catch (e: IOException) {
+            Log.e("BluetoothManager", "Помилка передачі даних: ${e.message}")
+            isConnected = false
+            ""
+        }
+    }
+
     fun disconnect() {
+        isConnected = false
         try {
             inputStream?.close()
             outputStream?.close()
